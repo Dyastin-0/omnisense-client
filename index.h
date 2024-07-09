@@ -296,7 +296,7 @@ const char authPage[] PROGMEM = R"=====(
 
         if (data.auth?.status === 'authenticated') {
           removeNode('auth-panel');
-          displayMessage('Sign in success, you can now use the app.'); 
+          displayMessage('This ESP32 is already authenticated, you can use the app.'); 
         }
       };
 
