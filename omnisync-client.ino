@@ -5,19 +5,21 @@
 #include <WebSocketsServer_Generic.h>
 #include <ESPmDNS.h>
 #include <ArduinoJson.h>
+
 #include "index.h"
+#include "secrets.h"
 
-#define wifiSsid "2.4G-J3Kt"
-#define wifiPassword "bb7QiBcD!"
+/*
+  Create a secrets.h header file and define the following with corresponding values:
+    #define wifiSsid ""
+    #define wifiPassword ""
+*/
 
-const String apiKey = "AIzaSyBuP81YRh3hUpo1Hv4fWYwnXlODsSOIr98";
 #define databaseUrl "omnisynchronize-default-rtdb.asia-southeast1.firebasedatabase.app"
-
-#define userEmail "paralejas@gmail.com"
-#define userPassword "afd221"
-const char* userPath = "/mV3HtW0NMafCv3L8VWswgOUk9xh1/devices";
+const String apiKey = "AIzaSyBuP81YRh3hUpo1Hv4fWYwnXlODsSOIr98";
 
 void asyncCB(AsyncResult &aResult);
+void getResult(AsyncResult &aResult);
 
 DefaultNetwork network;
 
@@ -35,8 +37,9 @@ const uint8_t ledBuiltin = 2;
 
 const uint8_t relays[2] = {14, 12};
 bool state;
+bool taskListenerReady = false;
 
-WebServer server(80);
+WebServer server(80); //Choose a port you want to use for the socket & web server
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 bool isAuthenticated = false;
@@ -138,13 +141,15 @@ void connectFirebase(UserAuth &user_auth, uint8_t num) {
   ssl_client2.setInsecure();
 
   initializeApp(aClient2, app, getAuth(user_auth), asyncCB, "authTask");
+}
 
-  app.getApp<RealtimeDatabase>(Database);
+void initializeRTDB() {
+	app.getApp<RealtimeDatabase>(Database);
 
   Database.url(databaseUrl);
   Database.setSSEFilters("get,put,patch,keep-alive,cancel,auth_revoked");
-  Database.get(aClient, userPath, asyncCB, true, "State Listener");
-
+  Database.get(aClient, (String(app.getUid()) + "/devices").c_str(), asyncCB, true, "State Listener");
+  
   Serial.println("[Omnisync] [Firebase] Initialized.");
 }
 
@@ -215,10 +220,10 @@ void setup() {
   }
   digitalWrite(ledBuiltin, 1);
   Serial.println();
-  Serial.print("[Omnisync] [Wi-Fi] [IP]: ");
+  Serial.print("[Omnisync] [Wi-Fi] [IP] ");
   Serial.println(WiFi.localIP());
 
-  if (MDNS.begin("omnisyncclient")) Serial.println("[Omnisync] [MDNS] started.");
+  if (MDNS.begin("omnisyn-cclient")) Serial.println("[Omnisync] [MDNS] started.");
   MDNS.addService("http", "tcp", 80);
 
   server.on("/", handleAuth);
@@ -235,4 +240,9 @@ void loop() {
   Database.loop();
   server.handleClient();
   webSocket.loop();
+
+	if (app.ready() && !taskListenerReady) {
+		taskListenerReady = true;
+		initializeRTDB();
+	}
 }
