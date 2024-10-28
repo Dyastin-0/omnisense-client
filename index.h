@@ -4,7 +4,7 @@ const char authPage[] PROGMEM = R"=====(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Omnisync Client</title>
+  <title>Omnisense</title>
   <style>
     :root {
       --base-color: rgb(230, 230, 230);
@@ -251,7 +251,7 @@ const char authPage[] PROGMEM = R"=====(
 <body>
     <div class="App">
       <div class='auth' id="auth-panel">
-        <h2>Omnisync</h2>
+        <h2>Omnisense</h2>
         <p> Sign in to your account </p>
         <input id="email" placeholder="Email" type="email" enterKeyHint='Enter' required></input>
         <input id="password" placeholder="Password" type="password" enterKeyHint='Enter' required></input>
