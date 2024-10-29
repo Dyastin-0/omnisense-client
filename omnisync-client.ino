@@ -8,7 +8,7 @@
 #include <map>
 
 #include "index.h"
-#include "secrets.h"
+#include "configPage.h"
 
 /*
   Create a secrets.h header file and define the following with corresponding values:
@@ -50,8 +50,49 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 
 bool isAuthenticated = false;
 
+bool isConfigured = false;
+
 void handleAuth() {
-    server.send(200, "text/html", authPage);
+	if (isConfigured) {
+		server.send(200, "text/html", authPage);
+	} else {
+		server.send(200," text/html", configPage);
+	}
+}
+
+void handleConfigureWifi() {
+ 	String body = server.arg("plain");
+	
+	StaticJsonDocument<200> config;
+	deserializeJson(config, body);
+
+	const char* ssid = config["ssid"];
+	const char* password = config["password"];
+
+	Serial.printf("[Omnisense] [Config] [WiFi] [SSID] %s\n", ssid);
+
+	WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  byte tries = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(250);
+    if (tries++ > 30) {
+      WiFi.mode(WIFI_AP);
+      WiFi.softAP("omnisense", "config-it");
+    	server.send(401, "Connection failed.");
+      break;
+    }
+	}
+
+	Serial.print("[Omnisense] [Wi-Fi] [IP] ");
+	Serial.println(WiFi.localIP());
+
+	isConfigured = true;
+	if (MDNS.begin("omnisense")) Serial.println("[Omnisense] [MDNS] started.");
+	MDNS.addService("http", "tcp", 80);
+
+	server.send(200, "Success");
 }
 
 void asyncCB(AsyncResult &aResult) {
@@ -224,23 +265,14 @@ void webSocketEvent(const uint8_t& num, const WStype_t& type, uint8_t * payload,
 void setup() {
     Serial.begin(115200);
 
-    WiFi.setAutoReconnect(true);
-    WiFi.begin(wifiSsid, wifiPassword);
+		WiFi.mode(WIFI_AP);
+		WiFi.softAP("omnisense", "config-it");
 
-    Serial.print("[Omnisense] [Wi-Fi] Connecting");
-    while (WiFi.status() != WL_CONNECTED) {
-        Serial.print(".");
-        delay(300);
-    }
-
-    Serial.println();
-    Serial.print("[Omnisense] [Wi-Fi] [IP] ");
-    Serial.println(WiFi.localIP());
-
-    if (MDNS.begin("omnisense")) Serial.println("[Omnisense] [MDNS] started.");
-    MDNS.addService("http", "tcp", 80);
+    Serial.print("[Omnisense] [Wi-Fi] [AP] [IP] ");
+    Serial.println(WiFi.softAPIP());
 
     server.on("/", handleAuth);
+		server.on("/config", HTTP_POST, handleConfigureWifi);
     server.begin();
 
     webSocket.onEvent(webSocketEvent);
