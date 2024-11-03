@@ -246,72 +246,130 @@ const char authPage[] PROGMEM = R"=====(
       min-width: calc(100% - 18px);
       padding: 9px;
     }
+
+    .instance-container {
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      width: 100%;
+      align-items: center;
+    }
+
+    .instance-button {
+      width: 100%;
+      padding: 9px;
+      border-radius: 5px;
+      border: none;
+      background-color: var(--complement);
+      color: var(--text-color);
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+    }
+
+    .instance-button:hover {
+      background-color: var(--accent);
+    }
   </style>
 </head>
 <body>
-    <div class="App">
-      <div class='auth' id="auth-panel">
-        <h2>Omnisense</h2>
-        <p> Sign in to your account </p>
-        <input id="email" placeholder="Email" type="email" enterKeyHint='Enter' required></input>
-        <input id="password" placeholder="Password" type="password" enterKeyHint='Enter' required></input>
-        <button class="nav-button center" id="sign-in">Sign in</button>
-      </div>
+  <div class="App">
+    <div class='auth' id="auth-panel">
+      <h2>Omnisense</h2>
+      <p>Sign in to your account</p>
+      <input id="email" placeholder="Email" type="email" enterKeyHint='Enter' required></input>
+      <input id="password" placeholder="Password" type="password" enterKeyHint='Enter' required></input>
+      <button class="nav-button center" id="sign-in">Sign in</button>
     </div>
+  </div>
 
-    <script>
-      const app = document.querySelector('.App');
-      const signInButton = document.getElementById('sign-in');
+  <script>
+    const app = document.querySelector('.App');
+    const signInButton = document.getElementById('sign-in');
 
-      const socket = new WebSocket(`ws://${location.hostname}:81`);
+    const socket = new WebSocket(`ws://${location.hostname}:81`);
 
-      signInButton.addEventListener('click', () => {
-        const email = document.getElementById('email').value;
-        const password = document.getElementById('password').value;
+    signInButton.addEventListener('click', () => {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
 
-        if (!email || !password) {
-          alert("Please enter both email and password");
-          return;
+      if (!email || !password) {
+        alert("Please enter both email and password");
+        return;
+      }
+
+      const authRequest = {
+        auth_request: {
+          email: email,
+          password: password
         }
+      };
 
-        const authRequest = {
-          auth_request: {
-            email: email,
-            password: password
-          }
+      socket.send(JSON.stringify(authRequest));
+    });
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      console.log(data);
+
+      if (data.auth_result?.isAuthenticated) {
+        removeNode('auth-panel');
+        displayMessage('Sign in success, you can now use the app.');
+      } else {
+        data.auth_result && alert(data.auth_result.message);
+      }
+
+      if (data.auth?.status === 'authenticated') {
+        removeNode('auth-panel');
+        displayMessage('This ESP32 is already authenticated, you can use the app.'); 
+      }
+
+      if (data.instances) {
+        removeNode('auth-panel');
+        removeNode('instance-container');
+        displayInstanceButtons(data.instances);
+      }
+    };
+
+    const removeNode = (id) => {
+      const node = document.getElementById(id);
+      if (node) node.remove();
+    };
+
+    const displayMessage = (message) => {
+      const success = document.createElement('h3');
+      success.textContent = message;
+      success.className = 'center';
+      app.appendChild(success);
+    };
+
+    const displayInstanceButtons = (instances) => {
+      const instanceContainer = document.createElement('div');
+      instanceContainer.className = 'instance-container';
+			instanceContainer.id = 'instance-container';
+
+      instances.forEach((instance) => {
+        const button = document.createElement('button');
+        button.textContent = instance;
+        button.className = 'instance-button';
+        button.onclick = () => {
+          fetch("instance", {
+            method: "POST",
+            headers: {
+              "Content-Type": "text/plain"
+            },
+            body: instance
+          });
         };
-
-        socket.send(JSON.stringify(authRequest));
+        instanceContainer.appendChild(button);
       });
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        console.log(data);
-        if (data.auth_result?.isAuthenticated) {
-          removeNode('auth-panel');
-          displayMessage('Sign in success, you can now use the app.');
-        } else {
-          data.auth_result && alert(data.auth_result.message);
-        }
+      app.appendChild(instanceContainer);
+    };
 
-        if (data.auth?.status === 'authenticated') {
-          removeNode('auth-panel');
-          displayMessage('This ESP32 is already authenticated, you can use the app.'); 
-        }
-      };
-
-      const removeNode = (id) => {
-        const node = document.getElementById(id);
-        node.remove();
-      };
-
-      const displayMessage =(message) => {
-        const success = document.createElement('h3');
-        success.classList.add('message');
-        success.textContent = message;
-        app.appendChild(success);
-      };
-    </script>
+    socket.onclose = () => {
+      displayMessage('The WebSocket connection has been closed.');
+    };
+  </script>
 </body>
 </html>
 )=====";
