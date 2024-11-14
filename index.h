@@ -344,7 +344,7 @@ const char authPage[] PROGMEM = R"=====(
 
     const displayInstanceButtons = (instances) => {
       const instanceContainer = document.createElement('div');
-      instanceContainer.className = 'instance-container';
+      instanceContainer.className = 'auth';
 			instanceContainer.id = 'instance-container';
 
       instances.forEach((instance) => {

@@ -46,7 +46,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 bool isAuthenticated = false;
 bool isConfigured = false;
 
-String instancePath = "MyRoom";
+String instancePath = "Default";
 
 std::vector<String> instances;
 
@@ -154,9 +154,30 @@ void toggleRelay(const char* serializedDoc, String dataPath) {
 			devicesMap[path] = device;
 		}
 	} else {
-		state = deserializeDoc["state"];
-		devicesMap[dataPath].state = state;
-		digitalWrite(devicesMap[dataPath].pin, state);
+		if (deserializeDoc.containsKey("state")) {
+			state = deserializeDoc["state"];
+			devicesMap[dataPath].state = state;
+			digitalWrite(devicesMap[dataPath].pin, state);
+		}
+
+		if (deserializeDoc.containsKey("pin")) {
+			int pin = deserializeDoc["pin"];
+			int prevPin = devicesMap[dataPath].pin;
+			int currentState = devicesMap[dataPath].state;
+			
+			devicesMap[dataPath].pin = pin;
+			pinMode(pin, OUTPUT);
+			
+			if (currentState) {
+				digitalWrite(pin, currentState);
+				digitalWrite(prevPin, !currentState);
+			} 
+		}
+
+		if (deserializeDoc.containsKey("name")) {
+			String name = deserializeDoc["name"];
+			devicesMap[dataPath].name = name;
+		}
 	}
 }
 
@@ -197,8 +218,6 @@ void setInstances(const char* serializedDoc) {
 
 	Serial.printf("[Omnisense] [WebSocket] Sent instances to clients: %s\n", message.c_str());
 }
-
-
 
 void authenticateUser(const String &apiKey, const String &email, const String &password, uint8_t num) {
 	if (isAuthenticated) return;
