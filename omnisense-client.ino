@@ -46,7 +46,7 @@ WebSocketsServer webSocket = WebSocketsServer(81);
 bool isAuthenticated = false;
 bool isConfigured = false;
 
-String instancePath = "MyRoom";
+String instancePath = "Default";
 
 std::vector<String> instances;
 
