@@ -40,7 +40,7 @@ RealtimeDatabase Database;
 bool state;
 bool taskListenerReady = false;
 
-WebServer server(80); // Choose a port you want to use for the socket & web server
+WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
 bool isAuthenticated = false;
@@ -129,13 +129,15 @@ void asyncCB1(AsyncResult &aResult) {
 
 
 void toggleRelay(const char* serializedDoc, String dataPath) {
-	DynamicJsonDocument deserializeDoc(1024);
-	deserializeJson(deserializeDoc, serializedDoc);
+	DynamicJsonDocument deserializedDoc(8192);
+	deserializeJson(deserializedDoc, serializedDoc);
 
-	if (deserializeDoc.is<JsonArray>()) {
-		JsonArray array = deserializeDoc.as<JsonArray>();
-		for (size_t i = 0; i < array.size(); i++) {
-			JsonObject object = array[i];
+	JsonObject rootObject = deserializedDoc.as<JsonObject>();
+
+	if (dataPath == "/") {
+		for (JsonPair kvPair : rootObject) {
+			const char* key = kvPair.key().c_str();
+			JsonObject object = kvPair.value().as<JsonObject>();
 
 			state = object["state"].as<bool>();
 			String name = object["name"].as<String>();
@@ -149,19 +151,18 @@ void toggleRelay(const char* serializedDoc, String dataPath) {
 			device.pin = pin;
 			device.state = state;
 
-			String path = "/" + String(i);
-
+			String path = "/" + String(key);
 			devicesMap[path] = device;
 		}
 	} else {
-		if (deserializeDoc.containsKey("state")) {
-			state = deserializeDoc["state"];
+		if (deserializedDoc.containsKey("state")) {
+			state = deserializedDoc["state"];
 			devicesMap[dataPath].state = state;
 			digitalWrite(devicesMap[dataPath].pin, state);
 		}
 
-		if (deserializeDoc.containsKey("pin")) {
-			int pin = deserializeDoc["pin"];
+		if (deserializedDoc.containsKey("pin")) {
+			int pin = deserializedDoc["pin"];
 			int prevPin = devicesMap[dataPath].pin;
 			int currentState = devicesMap[dataPath].state;
 			
@@ -174,15 +175,15 @@ void toggleRelay(const char* serializedDoc, String dataPath) {
 			} 
 		}
 
-		if (deserializeDoc.containsKey("name")) {
-			String name = deserializeDoc["name"];
+		if (deserializedDoc.containsKey("name")) {
+			String name = deserializedDoc["name"];
 			devicesMap[dataPath].name = name;
 		}
 	}
 }
 
 void setInstances(const char* serializedDoc) {
-	StaticJsonDocument<512> doc;
+	StaticJsonDocument<2048> doc;
 	deserializeJson(doc, serializedDoc);
 
 	instances.clear();
