@@ -102,8 +102,8 @@ void asyncCB(AsyncResult &aResult) {
 			Firebase.printf("[Omnisense] [%s] [event] %s\n",aResult.uid().c_str(), RTDB.event().c_str());
 			Firebase.printf("[Omnisense] [%s] [path] %s\n", aResult.uid().c_str(), RTDB.dataPath().c_str());
 			Firebase.printf("[Omnisense] [%s] [data] %s\n", aResult.uid().c_str(), RTDB.to<const char *>());
-			if (RTDB.event().c_str() != "keep-alive") {
-				toggleRelay(RTDB.to<const char *>(), String(RTDB.dataPath().c_str()));
+			if (RTDB.event().c_str() != "keep-alive" && String(RTDB.dataPath().c_str()) != "") {
+				handleDeviceChanges(RTDB.to<const char *>(), String(RTDB.dataPath().c_str()));
 			}
 		}
 	}
@@ -119,7 +119,7 @@ void asyncCB1(AsyncResult &aResult) {
 			Firebase.printf("[Omnisense] [%s] [event] %s\n",aResult.uid().c_str(), RTDB.event().c_str());
 			Firebase.printf("[Omnisense] [%s] [path] %s\n", aResult.uid().c_str(), RTDB.dataPath().c_str());
 			Firebase.printf("[Omnisense] [%s] [data] %s\n", aResult.uid().c_str(), RTDB.to<const char *>());
-			if (RTDB.event().c_str() != "keep-alive") {
+			if (RTDB.event().c_str() != "keep-alive" && String(RTDB.dataPath().c_str()) != "") {
 				setInstances(RTDB.to<const char *>());
 			}
 		}
@@ -128,11 +128,37 @@ void asyncCB1(AsyncResult &aResult) {
 }
 
 
-void toggleRelay(const char* serializedDoc, String dataPath) {
-	DynamicJsonDocument deserializedDoc(8192);
+void handleDeviceChanges(const char* serializedDoc, String dataPath) {
+	DynamicJsonDocument deserializedDoc(1024);
 	deserializeJson(deserializedDoc, serializedDoc);
 
 	JsonObject rootObject = deserializedDoc.as<JsonObject>();
+
+  if (serializedDoc == "null") {
+		Device device = devicesMap[dataPath];
+		devicesMap.erase(dataPath);
+
+		Serial.printf("[Omnisense] [Device] [-] %s\n", dataPath.c_str());
+		return;
+	}
+
+  if (dataPath != "/" && !devicesMap.count(dataPath) > 0) {
+		JsonObject object = deserializedDoc.as<JsonObject>();
+    Device device;
+		state = object["state"].as<bool>();
+		String name = object["name"].as<String>();
+    uint8_t pin = object["pin"].as<uint8_t>();
+
+		pinMode(pin, OUTPUT);
+		digitalWrite(pin, state);
+
+    
+		device.name = name;
+		device.pin = pin;
+    device.state = state;
+
+		devicesMap[dataPath] = device;
+  }
 
 	if (dataPath == "/") {
 		for (JsonPair kvPair : rootObject) {
