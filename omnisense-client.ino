@@ -14,10 +14,21 @@
 #define databaseUrl "omnisense-17447-default-rtdb.asia-southeast1.firebasedatabase.app"
 const String apiKey = "AIzaSyDI30Fd3AtxjZfCPC0QnaaQ68lUWe1_eK0";
 
+struct Schedule {
+  String days[7];
+  String from = "";
+  String to = "";
+};
+
 struct Device {
 	String name;
 	uint8_t pin;
+  unsigned long lastDebounceTime;
+  Schedule schedule;
 	bool state;
+  bool enabled;
+  bool sensorMode;
+  bool scheduleMode;
 };
 
 std::map<String, Device> devicesMap;
@@ -37,12 +48,11 @@ AsyncClient aClient(ssl_client1, getNetwork(network)), aClient2(ssl_client2, get
 
 RealtimeDatabase Database;
 
-bool state;
-bool taskListenerReady = false;
-
 WebServer server(80);
 WebSocketsServer webSocket = WebSocketsServer(81);
 
+bool pinsReady = false;
+bool taskListenerReady = false;
 bool isAuthenticated = false;
 bool isConfigured = false;
 
@@ -58,7 +68,7 @@ void handleAuth() {
 	}
 }
 
-void handleConfigureWifi() {
+void handleConfigureWifi() { 
  	String body = server.arg("plain");
 	
 	StaticJsonDocument<200> config;
@@ -82,6 +92,17 @@ void handleConfigureWifi() {
       break;
     }
 	}
+
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.nist.gov");
+
+  Serial.println("[Omnisense] [NTP] [Time] Synchronizing...");
+  struct tm timeInfo;
+  while (!getLocalTime(&timeInfo)) {
+  	Serial.println("[Omnisense] [NTP] [Time] Synchronization failed. Retrying...");
+    delay(1000);
+  }
+
+  Serial.println("[Omnisense] [NTP] [Time] Synchronized.");
 
 	Serial.print("[Omnisense] [Wi-Fi] [IP] ");
 	Serial.println(WiFi.localIP());
@@ -143,19 +164,34 @@ void handleDeviceChanges(const char* serializedDoc, String dataPath) {
 	}
 
   if (dataPath != "/" && !devicesMap.count(dataPath) > 0) {
-		JsonObject object = deserializedDoc.as<JsonObject>();
+		JsonObject object = deserializedDoc.as<JsonObject>(); 
     Device device;
-		state = object["state"].as<bool>();
-		String name = object["name"].as<String>();
-    uint8_t pin = object["pin"].as<uint8_t>();
 
-		pinMode(pin, OUTPUT);
-		digitalWrite(pin, state);
+		device.name = object["name"].as<String>();
+		device.pin = object["pin"].as<uint8_t>();
+    device.state = object["state"].as<bool>();
+    device.enabled = object["enabled"].as<bool>();
+    device.scheduleMode = object["scheduleMode"].as<bool>();
+    device.sensorMode = object["sensorMode"].as<bool>();
 
-    
-		device.name = name;
-		device.pin = pin;
-    device.state = state;
+    pinMode(device.pin, OUTPUT);
+		digitalWrite(device.pin, device.state);
+
+    Schedule schedule;
+		if (object.containsKey("schedule")) {
+			JsonObject scheduleObj = object["schedule"].as<JsonObject>();
+
+			JsonArray daysArray = scheduleObj["days"].as<JsonArray>();
+			int dayCount = min((size_t)7, daysArray.size());
+			
+			for (int i = 0; i < dayCount; i++) {
+				schedule.days[i] = daysArray[i].as<String>();
+			}
+
+			schedule.from = scheduleObj["from"].as<String>();
+			schedule.to = scheduleObj["to"].as<String>();
+		}
+		device.schedule = schedule;
 
 		devicesMap[dataPath] = device;
   }
@@ -164,25 +200,61 @@ void handleDeviceChanges(const char* serializedDoc, String dataPath) {
 		for (JsonPair kvPair : rootObject) {
 			const char* key = kvPair.key().c_str();
 			JsonObject object = kvPair.value().as<JsonObject>();
+      Device device;
 
-			state = object["state"].as<bool>();
-			String name = object["name"].as<String>();
-			uint8_t pin = object["pin"].as<uint8_t>();
+			device.name = object["name"].as<String>();
+		  device.pin = object["pin"].as<uint8_t>();
+      device.state = object["state"].as<bool>();
+      device.enabled = object["enabled"].as<bool>();
+      device.scheduleMode = object["scheduleMode"].as<bool>();
+      device.sensorMode = object["sensorMode"].as<bool>();
 
-			pinMode(pin, OUTPUT);
-			digitalWrite(pin, state);
+			pinMode(device.pin, OUTPUT);
+			digitalWrite(device.pin, device.state);
 
-			Device device;
-			device.name = name;
-			device.pin = pin;
-			device.state = state;
+      Schedule schedule;
+		  if (object.containsKey("schedule")) {
+			  JsonObject scheduleObj = object["schedule"].as<JsonObject>();
+
+			  JsonArray daysArray = scheduleObj["days"].as<JsonArray>();
+			  int dayCount = min((size_t)7, daysArray.size());
+			
+			  for (int i = 0; i < dayCount; i++) {
+			  	schedule.days[i] = daysArray[i].as<String>();
+			  }
+
+			  schedule.from = scheduleObj["from"].as<String>();
+			  schedule.to = scheduleObj["to"].as<String>();
+	  	} 	
+      device.schedule = schedule;
 
 			String path = "/" + String(key);
 			devicesMap[path] = device;
 		}
+
+    pinsReady = true;
 	} else {
+    if (deserializedDoc.containsKey("schedule")) {
+			JsonObject scheduleObj = deserializedDoc["schedule"].as<JsonObject>();
+
+			JsonArray daysArray = scheduleObj["days"].as<JsonArray>();
+			int dayCount = min((size_t)7, daysArray.size());
+			
+			for (int i = 0; i < dayCount; i++) {
+				devicesMap[dataPath].schedule.days[i] = daysArray[i].as<String>();
+			}
+
+			String from = scheduleObj["from"].as<String>();
+			String to = scheduleObj["to"].as<String>();
+
+			devicesMap[dataPath].schedule.from = from;
+			devicesMap[dataPath].schedule.to = to;
+			Serial.printf("[Omnisense Sensor] [Device] [Schedule] [from] [%s] [~] %s\n", from, dataPath.c_str());
+			Serial.printf("[Omnisense Sensor] [Device] [Schedule] [to] [%s] [~] %s\n", to, dataPath.c_str());
+		}
+
 		if (deserializedDoc.containsKey("state")) {
-			state = deserializedDoc["state"];
+			bool state = deserializedDoc["state"];
 			devicesMap[dataPath].state = state;
 			digitalWrite(devicesMap[dataPath].pin, state);
 		}
@@ -204,6 +276,24 @@ void handleDeviceChanges(const char* serializedDoc, String dataPath) {
 		if (deserializedDoc.containsKey("name")) {
 			String name = deserializedDoc["name"];
 			devicesMap[dataPath].name = name;
+		}
+
+    if (deserializedDoc.containsKey("sensorMode")) {
+			bool sensorMode = deserializedDoc["sensorMode"];
+			devicesMap[dataPath].sensorMode = sensorMode;
+			Serial.printf("[Omnisense Sensor] [Device] [SensorMode] [~] [%s] %s\n", sensorMode ? "true" : "false", dataPath.c_str());
+		}
+
+		if (deserializedDoc.containsKey("scheduleMode")) {
+			bool scheduleMode = deserializedDoc["scheduleMode"];
+			devicesMap[dataPath].scheduleMode = scheduleMode;
+			Serial.printf("[Omnisense Sensor] [Device] [ScheduleMode] [~] [%s] %s\n", scheduleMode ? "true" : "false", dataPath.c_str());
+		}
+
+		if (deserializedDoc.containsKey("enabled")) {
+			bool enabled = deserializedDoc["enabled"];
+			devicesMap[dataPath].enabled = enabled;
+			Serial.printf("[Omnisense Sensor] [Device] [Enabled] [~] [%s] %s\n", enabled ? "true" : "false", dataPath.c_str());
 		}
 	}
 }
@@ -389,6 +479,136 @@ void webSocketEvent(const uint8_t& num, const WStype_t& type, uint8_t * payload,
 	}
 }
 
+void sendStateChange(String path, String deviceName, String sensorName, bool currentState) {
+	JsonWriter writer;
+
+	String action = currentState ? "on" : "off";
+	time_t now = time(nullptr);
+	long long currentTime = static_cast<long long>(now) * 1000;
+
+	String formattedObject = "{\"actionType\":\"StateToggle\",";
+  formattedObject += "\"action\":\"" + action + "\",";
+  formattedObject += "\"name\":\"" + deviceName + "\",";
+  formattedObject += "\"sentBy\":\"Sensor Client (" + sensorName + ")\",";
+  formattedObject += "\"message\":\"Turned " + action + " the " + sensorName + ".\",";
+  formattedObject += "\"timeSent\":" + String(currentTime) + "}";
+
+  object_t message(formattedObject.c_str());
+
+	String targetPath = String(app.getUid()) + "/" + instancePath + "/devices" + path;
+	String messagePath = String(app.getUid()) + "/" + instancePath + "/messages" + "/" + String(currentTime);
+
+	Database.set(aClient2, messagePath, message); 
+
+	object_t state;
+	writer.create(state, "state", currentState);
+
+	Database.update(aClient2, targetPath, state);
+}
+
+bool isWithinSchedule(const Schedule& schedule) {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    return false;
+  }
+  
+  int currentDayOfWeek = timeinfo.tm_wday;
+
+  bool isDayScheduled = false;
+  for (int i = 0; i < 7; i++) {
+    if (schedule.days[i].length() == 0) continue;
+    
+    String day = schedule.days[i];
+    
+    if ((day == "Sunday" && currentDayOfWeek == 0) ||
+        (day == "Monday" && currentDayOfWeek == 1) ||
+        (day == "Tuesday" && currentDayOfWeek == 2) ||
+        (day == "Wednesday" && currentDayOfWeek == 3) ||
+        (day == "Thursday" && currentDayOfWeek == 4) ||
+        (day == "Friday" && currentDayOfWeek == 5) ||
+        (day == "Saturday" && currentDayOfWeek == 6)) {
+      isDayScheduled = true;
+      break;
+    }
+  }
+  
+  if (!isDayScheduled) return false;
+  
+  int fromHour, fromMinute, toHour, toMinute;
+  bool fromIsPM, toIsPM;
+  
+  char fromAmPm[3] = {0};
+  int fromResult = sscanf(schedule.from.c_str(), "%d:%d %2s", &fromHour, &fromMinute, fromAmPm);
+  fromIsPM = (strcmp(fromAmPm, "PM") == 0);
+  
+  char toAmPm[3] = {0};
+  int toResult = sscanf(schedule.to.c_str(), "%d:%d %2s", &toHour, &toMinute, toAmPm);
+  toIsPM = (strcmp(toAmPm, "PM") == 0);
+  
+  // Check for parsing errors
+  if (fromResult != 3 || toResult != 3) {
+    Serial.println("[Schedule] Time parsing failed, returning false");
+    return false;
+  }
+
+  // Convert to 24-hour format
+  int originalFromHour = fromHour;
+  int originalToHour = toHour;
+  
+  if (fromHour == 12) fromHour = fromIsPM ? 12 : 0;
+  else if (fromIsPM) fromHour += 12;
+  
+  if (toHour == 12) toHour = toIsPM ? 12 : 0;
+  else if (toIsPM) toHour += 12;
+
+  int currentMinutes = timeinfo.tm_hour * 60 + timeinfo.tm_min;
+  int fromMinutes = fromHour * 60 + fromMinute;
+  int toMinutes = toHour * 60 + toMinute;
+  
+  bool isWithinTime;
+  if (fromMinutes <= toMinutes) {
+    isWithinTime = (currentMinutes >= fromMinutes && currentMinutes < toMinutes);
+  } else {
+    isWithinTime = (currentMinutes >= fromMinutes || currentMinutes < toMinutes);
+  }
+  
+  return isWithinTime;
+}
+
+const unsigned long debounceDelay = 300;
+
+void scheduleListener() {
+  for (auto &entry : devicesMap) {
+    Device &device = entry.second;
+		Schedule &schedule = device.schedule;
+  
+    if (!device.enabled || !device.scheduleMode) continue;
+  
+    if (schedule.from != "") {
+			bool shouldBeOn = isWithinSchedule(schedule);
+			if (shouldBeOn) {
+				unsigned long currentTime = millis();
+				if (device.state) continue;
+				if ((currentTime - device.lastDebounceTime) > debounceDelay) {
+					digitalWrite(device.pin, !device.state);
+          sendStateChange(entry.first, device.name, "Schedule", !device.state);
+					device.lastDebounceTime = currentTime;
+				}
+
+				continue;
+			} else {
+				if (!device.state) continue;
+				unsigned long currentTime = millis();
+				if ((currentTime - device.lastDebounceTime) > debounceDelay) {
+          digitalWrite(device.pin, !device.state); 
+					sendStateChange(entry.first, device.name, "Schedule", !device.state);
+					device.lastDebounceTime = currentTime;
+				}
+			}
+		}
+  }
+}
+
 void setup() {
 	Serial.begin(115200);
 
@@ -420,4 +640,9 @@ void loop() {
 		delay(250);
 		initializeRTDB();
 	}
+
+  if (pinsReady) {
+    scheduleListener();
+  }
+
 }
